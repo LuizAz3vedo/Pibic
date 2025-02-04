@@ -36,9 +36,8 @@ df['municipio'] = df['municipio'].apply(normalizar_nome)
 
 df['municipioIBGE'] = df['municipioIBGE'].astype(str).str.zfill(7).fillna('Desconhecido')
 
-# Layout
+# Layout principal
 app.layout = html.Div([
-
     html.Link(
         rel='stylesheet',
         href='https://fonts.googleapis.com/css2?family=Poppins:wght@400;600&display=swap'
@@ -47,11 +46,13 @@ app.layout = html.Div([
     html.Div(
         className="header",
         children=[
-            html.Img(src='/assets/DotLab.png', className="header-image"),  
+            html.Img(src='/assets/DotLab.png', className="header-image"),
             "Plataforma interativa para visualização dos dados das notificações de síndrome gripal do estado de Pernambuco."
         ]
     ),
+
     dbc.Container([
+        # Filtros
         html.Div(className="filters", children=[
             dbc.Row([
                 dbc.Col([
@@ -80,69 +81,45 @@ app.layout = html.Div([
                 ], width=4)
             ])
         ]),
+
+        # Área de troca de páginas
         html.Div(id='conteudo-pagina', children=[
-           
-            dbc.Row(
-                dbc.Col(dcc.Graph(id='grafico-classificacao', className="dash-graph"), width=8, lg={"size": 8, "offset": 2})
-            ),
-            dbc.Row(
-                dbc.Col(dcc.Graph(id='grafico-evolucao', className="dash-graph"), width=8, lg={"size": 8, "offset": 2})
-            ),
-            dbc.Row(
-                dbc.Col(dcc.Graph(id='grafico-condicoes', className="dash-graph"), width=8, lg={"size": 8, "offset": 2})
+            dcc.Loading(
+                id="loading-pagina",
+                type="circle",
+                children=html.Div(id="pagina-conteudo")
             )
         ])
     ], style={'fontFamily': 'Poppins, sans-serif'}, fluid=True)
 ])
 
-# Callback para alternar entre páginas
+# Callback otimizado para alternar entre páginas
 @app.callback(
-    Output('conteudo-pagina', 'children'),
+    Output('pagina-conteudo', 'children'),
     [Input('botao-pagina-1', 'n_clicks'),
      Input('botao-pagina-2', 'n_clicks')]
 )
 def navegar_paginas(botao1, botao2):
     ctx = dash.callback_context
-    if not ctx.triggered:
-        return [
-            
-            dbc.Row(
-                dbc.Col(dcc.Graph(id='grafico-classificacao', className="dash-graph"), width=8, lg={"size": 8, "offset": 2})
-            ),
-            dbc.Row(
-                dbc.Col(dcc.Graph(id='grafico-evolucao', className="dash-graph"), width=8, lg={"size": 8, "offset": 2})
-            ),
-            dbc.Row(
-                dbc.Col(dcc.Graph(id='grafico-condicoes', className="dash-graph"), width=8, lg={"size": 8, "offset": 2})
-            )
-        ]
+    pagina = 'pagina1'  # Página padrão
 
-    if ctx.triggered[0]['prop_id'].startswith('botao-pagina-1'):
-        return [
+    if ctx.triggered:
+        trigger_id = ctx.triggered[0]['prop_id'].split('.')[0]
+        if trigger_id == "botao-pagina-2":
+            pagina = 'pagina2'
 
-            dbc.Row(
-                dbc.Col(dcc.Graph(id='grafico-classificacao', className="dash-graph"), width=8, lg={"size": 8, "offset": 2})
-            ),
-            dbc.Row(
-                dbc.Col(dcc.Graph(id='grafico-evolucao', className="dash-graph"), width=8, lg={"size": 8, "offset": 2})
-            ),
-            dbc.Row(
-                dbc.Col(dcc.Graph(id='grafico-condicoes', className="dash-graph"), width=8, lg={"size": 8, "offset": 2})
-            )
-        ]
-    elif ctx.triggered[0]['prop_id'].startswith('botao-pagina-2'):
+    if pagina == 'pagina1':
         return [
- 
-            dbc.Row(
-                dbc.Col(dcc.Graph(id='grafico-piramide-etaria', className="dash-graph"), width=12, lg={"size": 8, "offset": 2})
-            ),
-            dbc.Row(
-                dbc.Col(dcc.Graph(id='grafico-sankey', className="dash-graph"), width=12, lg={"size": 8, "offset": 2})
-            ),
-            dbc.Row(
-                dbc.Col(dcc.Graph(id='grafico-mapa-calor', className="dash-graph"), width=12, lg={"size": 8, "offset": 2})
-            )
+            dbc.Row(dbc.Col(dcc.Graph(id='grafico-classificacao'), width=8, lg={"size": 8, "offset": 2})),
+            dbc.Row(dbc.Col(dcc.Graph(id='grafico-evolucao'), width=8, lg={"size": 8, "offset": 2})),
+            dbc.Row(dbc.Col(dcc.Graph(id='grafico-condicoes'), width=8, lg={"size": 8, "offset": 2}))
         ]
+    
+    return [
+        dbc.Row(dbc.Col(dcc.Graph(id='grafico-piramide-etaria'), width=12, lg={"size": 8, "offset": 2})),
+        dbc.Row(dbc.Col(dcc.Graph(id='grafico-sankey'), width=12, lg={"size": 8, "offset": 2})),
+        dbc.Row(dbc.Col(dcc.Graph(id='grafico-mapa-calor'), width=12, lg={"size": 8, "offset": 2}))
+    ]
 
 @app.callback(
     [Output('grafico-piramide-etaria', 'figure'),
@@ -152,193 +129,128 @@ def navegar_paginas(botao1, botao2):
      Input('filtro-sexo', 'value')]
 )
 def criar_graficos(filtro_raca, filtro_sexo):
-    
-    df_filtrado = df.copy()
+    # Garantir que df não seja modificado diretamente
+    filtros = pd.Series(True, index=df.index)
     if filtro_raca:
-        df_filtrado = df_filtrado[df_filtrado['racaCor'] == filtro_raca]
+        filtros &= df['racaCor'] == filtro_raca
     if filtro_sexo:
-        df_filtrado = df_filtrado[df_filtrado['sexo'] == filtro_sexo]
-
+        filtros &= df['sexo'] == filtro_sexo
     
+    df_filtrado = df.loc[filtros].copy()
+
+    # Tratamento das faixas etárias
     df_filtrado['faixa_etaria'] = df_filtrado['faixa_etaria'].astype(str).fillna('Desconhecido')
     df_filtrado = df_filtrado[df_filtrado['faixa_etaria'] != 'nan']
 
-   
-    def extrair_inicio_faixa(faixa):
-        try:
-            return int(faixa.split(' a ')[0]) if ' a ' in faixa else float('inf')
-        except ValueError:
-            return float('inf')
+    def agrupar_idades(faixa):
+        if ' a ' in faixa:
+            inicio_faixa = int(faixa.split(' a ')[0])
+        elif '+' in faixa:
+            inicio_faixa = int(faixa.split('+')[0])
+        else:
+            return faixa
+        return '55+' if inicio_faixa >= 55 else faixa
 
+    df_filtrado['faixa_etaria'] = df_filtrado['faixa_etaria'].apply(agrupar_idades)
+
+    # Ordenação das categorias etárias
     categorias_ordenadas = sorted(
         df_filtrado['faixa_etaria'].unique(),
-        key=extrair_inicio_faixa
+        key=lambda x: int(x.split(' a ')[0]) if ' a ' in x and x != '55+' else (float('inf') if x == '55+' else int(x.split('+')[0]))
     )
 
-    df_filtrado['faixa_etaria'] = pd.Categorical(
-        df_filtrado['faixa_etaria'], 
-        categories=categorias_ordenadas, 
-        ordered=True
-    )
+    df_filtrado['faixa_etaria'] = pd.Categorical(df_filtrado['faixa_etaria'], categories=categorias_ordenadas, ordered=True)
 
-  
-    piramide_data = (
-        df_filtrado.groupby(['faixa_etaria', 'sexo']).size().reset_index(name='contagem')
-    )
-    piramide_data['contagem_negativa'] = piramide_data.apply(
-        lambda row: -row['contagem'] if row['sexo'] == 'Feminino' else row['contagem'],
-        axis=1
-    )
+    # Agrupamento otimizado
+    piramide_data = df_filtrado.groupby(['faixa_etaria', 'sexo']).size().reset_index(name='contagem')
+    piramide_data['contagem_negativa'] = piramide_data['contagem'] * piramide_data['sexo'].map({'Feminino': -1, 'Masculino': 1})
+    piramide_data['percentual'] = piramide_data['contagem'] / piramide_data['contagem'].sum() * 100
+    piramide_data['texto'] = piramide_data.apply(lambda row: f"{row['contagem']} ({row['percentual']:.1f}%)", axis=1)
 
-   
-    piramide_data['percentual'] = (
-        piramide_data['contagem'] / piramide_data['contagem'].sum() * 100
-    )
-
-    
-    piramide_data['texto'] = piramide_data.apply(
-        lambda row: f"{row['contagem']} ({row['percentual']:.1f}%)", axis=1
-    )
-
-    
+    # Criação do gráfico
     fig_piramide = px.bar(
         piramide_data,
         x='contagem_negativa',
         y='faixa_etaria',
         color='sexo',
         orientation='h',
-        title='Pirâmide Etária',
+        title='<b>Pirâmide Etária</b>',
         labels={'faixa_etaria': 'Faixa Etária', 'contagem_negativa': 'Contagem', 'sexo': 'Sexo'},
-        color_discrete_map={'Masculino': '#1f77b4', 'Feminino': '#e377c2'},  
-        text='texto' 
+        color_discrete_map={'Masculino': '#1f77b4', 'Feminino': '#e377c2'},
+        text='texto'
     )
 
-    
+    # Ajustes do layout otimizados
     fig_piramide.update_layout(
         template='plotly_white',
         height=700,
-        bargap=0.1,  
-        title=dict(
-            text='Pirâmide Etária',
-            x=0.5,
-            xanchor='center',
-            font=dict(size=20, family='Poppins, sans-serif', color="black", weight='bold')  
-        ),
-        xaxis=dict(
-            title=dict(
-                text='População',
-                font=dict(size=14, family='Poppins, sans-serif', color="black") 
-            ),
-            showgrid=True,
-            zeroline=True,
-            zerolinewidth=1.5,
-            zerolinecolor='gray'
-        ),
-        yaxis=dict(
-            title=dict(
-                text='Faixa Etária',
-                font=dict(size=14, family='Poppins, sans-serif', color="black")  
-            ),
-            showgrid=False,
-        ),
-        legend=dict(
-            title='<b>Sexo</b>',
-            font=dict(size=12, family='Poppins, sans-serif'),
-            bgcolor='rgba(240,240,240,0.8)',
-            bordercolor='gray',
-            borderwidth=1
-        ),
-        transition={
-            'duration': 800,  
-            'easing': 'cubic-in-out',
-            
-        }
+        bargap=0.1,
+        title=dict(x=0.5, xanchor='center', font=dict(size=20, family='Poppins, sans-serif', color="black", weight='bold')),
+        xaxis=dict(title=dict(text='População', font=dict(size=14, family='Poppins, sans-serif', color="black")), showgrid=True, zeroline=True, zerolinewidth=1.5, zerolinecolor='gray'),
+        yaxis=dict(title=dict(text='Faixa Etária', font=dict(size=14, family='Poppins, sans-serif', color="black")), showgrid=False),
+        legend=dict(title='<b>Sexo</b>', font=dict(size=12, family='Poppins, sans-serif'), bgcolor='rgba(240,240,240,0.8)', bordercolor='gray', borderwidth=1),
+        transition={'duration': 800, 'easing': 'cubic-in-out'}
     )
 
-    
-    fig_piramide.update_traces(
-        marker_line_width=1, 
-        marker_line_color='black',
-        textposition='outside'  
-    )
-
-    
+    # Ajustes nos traços e posição do texto
+    fig_piramide.update_traces(marker_line_width=1, marker_line_color='black', textposition='outside')
     fig_piramide.for_each_trace(lambda t: t.update(textposition='outside' if t.name == 'Masculino' else 'inside'))
-
-
-    
-    fig_piramide.update_traces(marker_line_width=1, marker_line_color='black')
     
     
-    df_filtrado['sintomas'] = df_filtrado['sintomas'].fillna('Não Informado')
-    df_filtrado['evolucaoCaso'] = df_filtrado['evolucaoCaso'].fillna('Desconhecido')
-    df_filtrado['classificacaoFinal'] = df_filtrado['classificacaoFinal'].fillna('Não Classificado')
+    # Preenchendo valores ausentes
+    df_filtrado.fillna({
+        'sintomas': 'Não Informado',
+        'evolucaoCaso': 'Desconhecido',
+        'classificacaoFinal': 'Não Classificado'
+    }, inplace=True)
 
-    df_filtrado['classificacaoFinal'] = df_filtrado['classificacaoFinal'].str.strip().str.lower()
+    # Normalizando classificação final
+    mapeamento_classificacao = {
+        'confirmado laboratorial': 'Confirmado',
+        'confirmado clínico-imagem': 'Confirmado',
+        'confirmado por critério clínico': 'Confirmado',
+        'confirmação laboratorial': 'Confirmado',
+        'confirmado clínico-epidemiológico': 'Confirmado',
+        'confirmado critério clínico': 'Confirmado'
+    }
 
-    
-    df_filtrado['classificacaoFinal'] = df_filtrado['classificacaoFinal'].replace(
-        to_replace=[
-            'confirmado laboratorial',
-            'confirmado clínico-imagem',
-            'confirmado por critério clínico',
-            'confirmação laboratorial',
-            'confirmado clínico-epidemiológico',
-            'confirmado critério clínico'
-        ],
-        value='confirmado'
+    df_filtrado['classificacaoFinal'] = (
+        df_filtrado['classificacaoFinal'].str.strip().str.lower()
+        .replace(mapeamento_classificacao)
+        .str.capitalize()
     )
 
-    
-    df_filtrado['classificacaoFinal'] = df_filtrado['classificacaoFinal'].str.capitalize()
-
-    
+    # Construção dos dados para o Sankey
     colunas_sankey = ['sintomas', 'classificacaoFinal', 'evolucaoCaso']
-    sankey_data = pd.DataFrame()
+    sankey_data = pd.concat([
+        df_filtrado.groupby([colunas_sankey[i], colunas_sankey[i + 1]])
+        .size()
+        .reset_index(name='fluxo')
+        .rename(columns={colunas_sankey[i]: 'categoria_origem', colunas_sankey[i + 1]: 'categoria_destino'})
+        for i in range(len(colunas_sankey) - 1)
+    ], ignore_index=True)
 
-    for i in range(len(colunas_sankey) - 1):
-        origem = colunas_sankey[i]
-        destino = colunas_sankey[i + 1]
-        pares = (
-            df_filtrado.groupby([origem, destino])
-            .size()
-            .reset_index(name='fluxo')
-        )
-        pares.columns = ['categoria_origem', 'categoria_destino', 'fluxo']
-        sankey_data = pd.concat([sankey_data, pares], ignore_index=True)
-
-    
-    categorias_origem = sankey_data['categoria_origem'].unique().tolist()
-    categorias_destino = sankey_data['categoria_destino'].unique().tolist()
-    todos_os_nos = list(set(categorias_origem + categorias_destino))
+    # Criando índices únicos para os nós
+    todos_os_nos = list(set(sankey_data['categoria_origem']).union(set(sankey_data['categoria_destino'])))
     indices_nos = {nome: i for i, nome in enumerate(todos_os_nos)}
 
-    
+    # Definição de cores
+    cores_nos_definidas = {
+        'Cura': '#00995E', 'Óbito': '#000000', 'Febre': '#FFC567',
+        'Confirmado': '#FD5A46', 'Não Classificado': '#058CD7',
+        'Não Informado': '#B0BEC5', 'Desconhecido': '#607D8B'
+    }
+
     def gerar_cor_aleatoria():
         return f'#{random.randint(0, 0xFFFFFF):06x}'
 
-    cores_nos = {
-        'Cura': '#00995E',
-        'Óbito': '#000000',
-        'Febre': '#FFC567',
-        'Confirmado': '#FD5A46',
-        'Não Classificado': '#058CD7',
-        'Não Informado': '#B0BEC5',
-        'Desconhecido': '#607D8B'
-    }
+    cores_nos = [cores_nos_definidas.get(categoria, gerar_cor_aleatoria()) for categoria in todos_os_nos]
 
-    todos_os_nos_cor = [
-        cores_nos.get(categoria, gerar_cor_aleatoria()) for categoria in todos_os_nos
-    ]
-
-    
+    # Criando o gráfico Sankey
     fig_sankey = go.Figure(data=[go.Sankey(
         node=dict(
-            pad=20,
-            thickness=30,
-            line=dict(color="black", width=0.5),
-            label=todos_os_nos,
-            color=todos_os_nos_cor,
+            pad=20, thickness=30, line=dict(color="black", width=0.5),
+            label=todos_os_nos, color=cores_nos
         ),
         link=dict(
             source=sankey_data['categoria_origem'].map(indices_nos).tolist(),
@@ -349,61 +261,54 @@ def criar_graficos(filtro_raca, filtro_sexo):
         )
     )])
 
-   
+    # Ajustes na formatação do gráfico
     fig_sankey.update_layout(
         title_text="Fluxo de Sintomas, Classificação e Evolução dos Casos",
-        title_font=dict(size=22, family='Poppins, sans-serif', color='black', weight='bold'),
-        font_size=14,
-        height=700,
-        template="plotly_white",
-        showlegend=False,
+        title_font=dict(size=22, family='Poppins, sans-serif', color='black'),
+        font_size=14, height=700, template="plotly_white", showlegend=False,
         margin=dict(l=50, r=50, t=80, b=50),
         plot_bgcolor='rgba(240, 240, 240, 0.9)',
-        title={
-            'x': 0.5,
-            'xanchor': 'center',
-            'yanchor': 'top',
-        }
+        title={'x': 0.5, 'xanchor': 'center', 'yanchor': 'top'}
     )
 
     
+    # Agregação otimizada dos casos por município
     casos_por_municipio = (
         df_filtrado.groupby('municipioNotificacao', as_index=False)
-        .size()
-        .rename(columns={'size': 'casos'})
+        .agg(casos=('municipioNotificacao', 'count'))
     )
 
-   
+    # Normaliza os nomes dos municípios
     casos_por_municipio['municipioNotificacao'] = casos_por_municipio['municipioNotificacao'].apply(normalizar_nome)
 
-   
+    # Carregando e unindo os dados geográficos
     gdf_municipios = gpd.read_file('df/PE_Municipios_2023.shp')
     gdf_mapa = gdf_municipios.merge(casos_por_municipio, left_on='NM_MUN', right_on='municipioNotificacao', how='left')
 
-    
+    # Preenchendo valores nulos
     gdf_mapa['casos'] = gdf_mapa['casos'].fillna(0)
 
-    
+    # Extração direta da latitude e longitude dos centróides
     gdf_mapa['latitude'] = gdf_mapa.geometry.centroid.y
     gdf_mapa['longitude'] = gdf_mapa.geometry.centroid.x
 
-    
+    # Criando o mapa de calor
     fig_mapa_calor = go.Figure()
 
-
+    # Adicionando pontos ao mapa (heatmap)
     fig_mapa_calor.add_trace(go.Scattermapbox(
         lat=gdf_mapa['latitude'],
         lon=gdf_mapa['longitude'],
         mode='markers',
-        marker=go.scattermapbox.Marker(
-            size=gdf_mapa['casos'],         
-            color=gdf_mapa['casos'],         
-            colorscale='Viridis',           
-            sizemin=5,                       
-            sizeref=2.0 * max(gdf_mapa['casos']) / 100 ** 2,  
-            sizemode='area'                 
+        marker=dict(
+            size=gdf_mapa['casos'],
+            color=gdf_mapa['casos'],
+            colorscale='Viridis',
+            sizemin=5,
+            sizeref=2.0 * max(gdf_mapa['casos']) / 100 ** 2,
+            sizemode='area'
         ),
-        text=gdf_mapa['NM_MUN'],         
+        text=gdf_mapa['NM_MUN'],
         hovertemplate=(
             "<b>Município:</b> %{text}<br>"
             "<b>Casos:</b> %{marker.size:,}<extra></extra>"
@@ -411,55 +316,39 @@ def criar_graficos(filtro_raca, filtro_sexo):
         showlegend=False
     ))
 
-    
-    for i, row in gdf_mapa.iterrows():
-        if row.geometry.geom_type == 'MultiPolygon':
-            
-            for polygon in row.geometry.geoms:
-                lats = []
-                lons = []
-                for part in polygon.exterior.coords:
-                    lons.append(part[0])
-                    lats.append(part[1])
-                
-                fig_mapa_calor.add_trace(go.Scattermapbox(
-                    lat=lats,
-                    lon=lons,
-                    mode='lines',
-                    line=dict(width=1, color='black'),
-                    hoverinfo='none',
-                    showlegend=False
-                ))
-        elif row.geometry.geom_type == 'Polygon':
-            
-            lats = []
-            lons = []
-            for part in row.geometry.exterior.coords:
-                lons.append(part[0])
-                lats.append(part[1])
-            
+    # Função otimizada para extrair coordenadas dos polígonos
+    def extrair_coordenadas(geom):
+        """ Extrai coordenadas (lat, lon) de um Polygon ou MultiPolygon """
+        if geom.geom_type == 'Polygon':
+            return [list(zip(*geom.exterior.coords.xy))]
+        elif geom.geom_type == 'MultiPolygon':
+            return [list(zip(*poly.exterior.coords.xy)) for poly in geom.geoms]
+        return []
+
+    # Extraindo coordenadas e adicionando ao mapa
+    for _, row in gdf_mapa.iterrows():
+        for coords in extrair_coordenadas(row.geometry):
+            lons, lats = zip(*coords)
             fig_mapa_calor.add_trace(go.Scattermapbox(
-                lat=lats,
-                lon=lons,
+                lat=lats, lon=lons,
                 mode='lines',
                 line=dict(width=1, color='black'),
                 hoverinfo='none',
                 showlegend=False
             ))
 
-   
+    # Ajustes finais no layout do mapa
     fig_mapa_calor.update_layout(
         mapbox=dict(
-            style='carto-positron',            
-            zoom=6.5,                          
-            center=dict(lat=-8.5, lon=-37.8),  # Centralizar em PE
+            style='carto-positron',
+            zoom=6.5,
+            center=dict(lat=-8.5, lon=-37.8),  # Centralizado em PE
         ),
-        margin=dict(r=0, t=50, l=0, b=0),     
+        margin=dict(r=0, t=50, l=0, b=0),
         height=700,
         title=dict(
             text="Mapa de Casos por Município - Síndrome Gripal",
-            x=0.5,
-            xanchor='center',
+            x=0.5, xanchor='center',
             font=dict(size=20, family='Poppins, sans-serif', color="black")
         )
     )
@@ -479,17 +368,21 @@ def criar_graficos(filtro_raca, filtro_sexo):
      Input('filtro-sexo', 'value')]
 )
 def atualizar_graficos(filtro_raca, filtro_sexo):
-   
-    df_filtrado = df.copy()
-    if filtro_raca:
-        df_filtrado = df_filtrado[df_filtrado['racaCor'] == filtro_raca]
-    if filtro_sexo:
-        df_filtrado = df_filtrado[df_filtrado['sexo'] == filtro_sexo]
+    # Criar uma máscara booleana inicial
+    filtros = pd.Series(True, index=df.index)
 
+    # Aplicar filtros apenas se houver valores selecionados
+    if filtro_raca:
+        filtros &= df['racaCor'] == filtro_raca
+    if filtro_sexo:
+        filtros &= df['sexo'] == filtro_sexo
     
+    df_filtrado = df[filtros]
+
+    # Agrupamento otimizado
     grouped_df = df_filtrado.groupby(['sintomas', 'classificacaoFinal']).size().reset_index(name='count')
-    
-   
+
+    # Criando o gráfico de classificação
     fig_classificacao = px.bar(
         grouped_df, 
         x='sintomas', 
@@ -501,184 +394,86 @@ def atualizar_graficos(filtro_raca, filtro_sexo):
         color_discrete_sequence=px.colors.qualitative.Set2
     )
 
-    
-    fig_classificacao.update_xaxes(
-        categoryorder='total descending',
-        tickfont=dict(size=12, family='Poppins, sans-serif', color='black'),  
-        title_font=dict(size=16, family='Poppins, sans-serif', color='black')  
-    )
-
-    fig_classificacao.update_yaxes(
-        tickfont=dict(size=12, family='Poppins, sans-serif', color='black'), 
-        title_font=dict(size=16, family='Poppins, sans-serif', color='black')  
-    )
-
-    
+    # Atualização de layout otimizada
     fig_classificacao.update_layout(
-        title={
-            'text': '<b>Classificação Final por Sintomas</b>',  
-            'y': 0.95,
-            'x': 0.5,
-            'xanchor': 'center',
-            'yanchor': 'top',
-            'font': dict(size=20, family='Poppins, sans-serif', weight='bold', color="black") 
-        },
-        xaxis=dict(
-            title_font=dict(size=16, family='Poppins, sans-serif', color='black')  
-        ),
-        yaxis=dict(
-            title_font=dict(size=16, family='Poppins, sans-serif', color='black')  
-        ),
-        legend=dict(
-            title='<b>Classificação Final:</b>',  
-            font=dict(size=14, family='Poppins, sans-serif', color='black'),  
-            bgcolor='rgba(240,240,240,0.8)',  
-            bordercolor='gray',
-            borderwidth=1
-        ),
-        margin=dict(l=50, r=50, t=80, b=50),  
-        bargap=0.2, 
-        bargroupgap=0.1,  
-        plot_bgcolor='rgba(240,240,240,0.5)',  
+        title={'text': '<b>Classificação Final por Sintomas</b>', 'y': 0.95, 'x': 0.5, 'xanchor': 'center', 'yanchor': 'top'},
+        xaxis=dict(categoryorder='total descending', title_font=dict(size=16, family='Poppins, sans-serif', color='black')),
+        yaxis=dict(title_font=dict(size=16, family='Poppins, sans-serif', color='black')),
+        legend=dict(title='<b>Classificação Final:</b>', font=dict(size=14, family='Poppins, sans-serif', color='black'), bgcolor='rgba(240,240,240,0.8)', bordercolor='gray', borderwidth=1),
+        margin=dict(l=50, r=50, t=80, b=50),
+        bargap=0.2,
+        bargroupgap=0.1,
+        plot_bgcolor='rgba(240,240,240,0.5)',
         transition={
             'duration': 500,
             'easing': 'cubic-in-out'  
         }
     )
 
-   
-    fig_classificacao.update_traces(
-        marker=dict(line=dict(color='black', width=1))  
-    )
+    fig_classificacao.update_traces(marker=dict(line=dict(color='black', width=1)))
 
-   
+    # Contagem otimizada das evoluções de casos
     evolucao_count = df_filtrado['evolucaoCaso'].value_counts().reset_index()
-    evolucao_count.columns = ['Evolucao', 'Contagem']
+    evolucao_count.columns = ['evolucaoCaso', 'Contagem']  # Corrigindo a referência do nome da coluna
 
-    
+    # Criando o gráfico otimizado
     fig_evolucao = px.bar(
         evolucao_count, 
-        x='Evolucao', 
+        x='evolucaoCaso',  # Agora o nome está correto
         y='Contagem', 
-        title='Contagem de Evolução de Casos',
-        labels={'Contagem': 'Número de Casos', 'Evolucao': 'Evolução do Caso'},
-        color='Evolucao',
-        color_discrete_sequence=px.colors.qualitative.Pastel 
+        title='<b>Contagem de Evolução de Casos</b>',
+        labels={'Contagem': 'Número de Casos', 'evolucaoCaso': 'Evolução do Caso'},
+        color='evolucaoCaso',
+        color_discrete_sequence=px.colors.qualitative.Pastel
     )
 
-   
-    fig_evolucao.update_xaxes(
-        tickfont=dict(size=12, family='Poppins, sans-serif', color='black'), 
-        title_font=dict(size=16, family='Poppins, sans-serif', color='black'),  
-        tickangle=-45  
-    )
-
-    fig_evolucao.update_yaxes(
-        tickfont=dict(size=12, family='Poppins, sans-serif', color='black'), 
-        title_font=dict(size=16, family='Poppins, sans-serif', color='black') 
-    )
-
+    # Atualização do layout otimizada
     fig_evolucao.update_layout(
         template='plotly_white',
-        title={
-            'text': '<b>Contagem de Evolução de Casos</b>',  
-            'y': 0.95,
-            'x': 0.5,
-            'xanchor': 'center',
-            'yanchor': 'top',
-            'font': dict(size=20, family='Poppins, sans-serif', color="black", weight='bold') 
-        },
-        xaxis=dict(
-            title_font=dict(size=16, family='Poppins, sans-serif', color='black')  
-        ),
-        yaxis=dict(
-            title_font=dict(size=16, family='Poppins, sans-serif', color='black')  
-        ),
-        legend=dict(
-            title='<b>Evolução:</b>',  
-            font=dict(size=14, family='Poppins, sans-serif', color='black'),  
-            bgcolor='rgba(240,240,240,0.8)',  
-            bordercolor='gray',
-            borderwidth=1,
-        ),
-        margin=dict(l=50, r=50, t=80, b=50),  
-        bargap=0.2,  
+        title=dict(y=0.95, x=0.5, xanchor='center', yanchor='top', font=dict(size=20, family='Poppins, sans-serif', color="black", weight='bold')),
+        xaxis=dict(title_font=dict(size=16, family='Poppins, sans-serif', color='black'), tickfont=dict(size=12, family='Poppins, sans-serif', color='black'), tickangle=-45),
+        yaxis=dict(title_font=dict(size=16, family='Poppins, sans-serif', color='black'), tickfont=dict(size=12, family='Poppins, sans-serif', color='black')),
+        legend=dict(title='<b>Evolução:</b>', font=dict(size=14, family='Poppins, sans-serif', color='black'), bgcolor='rgba(240,240,240,0.8)', bordercolor='gray', borderwidth=1),
+        margin=dict(l=50, r=50, t=80, b=50),
+        bargap=0.2,
         plot_bgcolor='rgba(240,240,240,0.5)',
-        transition={
-            'duration': 500,  
-            'easing': 'cubic-in-out' 
-        }  
+        transition={'duration': 500, 'easing': 'cubic-in-out'}
     )
 
-   
-    fig_evolucao.update_traces(
-        marker=dict(line=dict(color='black', width=1))  
-    )
+    # Estilização dos traços do gráfico
+    fig_evolucao.update_traces(marker_line=dict(color='black', width=1))
 
-    condicoes_count = df_filtrado['condicoes'].value_counts().reset_index()
-    condicoes_count.columns = ['Condicao', 'Contagem']
-    top_10_condicoes = condicoes_count.head(10)
+    # Contagem otimizada das condições
+    top_10_condicoes = df_filtrado['condicoes'].value_counts().reset_index(name='Contagem').nlargest(10, 'Contagem')
+    top_10_condicoes.columns = ['Condicao', 'Contagem']  
 
-   
-    
+    # Criando o gráfico otimizado
     fig_condicoes = px.bar(
         top_10_condicoes, 
         x='Condicao', 
         y='Contagem', 
-        title='Top 10 Condições mais Frequentes',
+        title='<b>Top 10 Condições mais Frequentes</b>',
         labels={'Contagem': 'Número de Casos', 'Condicao': 'Condição'},
         color='Contagem',
-        color_continuous_scale=px.colors.sequential.Viridis  
+        color_continuous_scale=px.colors.sequential.Viridis
     )
 
-    
-    fig_condicoes.update_xaxes(
-        tickfont=dict(size=12, family='Poppins, sans-serif', color='black'),  
-        title_font=dict(size=16, family='Poppins, sans-serif', color='black'),  
-        tickangle=-45  
-    )
-
-    fig_condicoes.update_yaxes(
-        tickfont=dict(size=12, family='Poppins, sans-serif', color='black'),  
-        title_font=dict(size=16, family='Poppins, sans-serif', color='black')  
-    )
-
+    # Atualização do layout otimizada
     fig_condicoes.update_layout(
         template='plotly_white',
-        title={
-            'text': '<b>Top 10 Condições mais Frequentes</b>',  
-            'y': 0.95,
-            'x': 0.5,
-            'xanchor': 'center',
-            'yanchor': 'top',
-            'font': dict(size=20, family='Poppins, sans-serif', weight='bold', color="black")  
-        },
-        xaxis=dict(
-            title_font=dict(size=16, family='Poppins, sans-serif', color='black') 
-        ),
-        yaxis=dict(
-            title_font=dict(size=16, family='Poppins, sans-serif', color='black')  
-        ),
-        legend=dict(
-            title='<b>Contagem</b>',  
-            font=dict(size=14, family='Poppins, sans-serif', color='black'), 
-            bgcolor='rgba(240,240,240,0.8)',  
-            bordercolor='gray',
-            borderwidth=1
-        ),
-        margin=dict(l=50, r=50, t=80, b=50),  
-        bargap=0.2, 
-        plot_bgcolor='rgba(240,240,240,0.5)',  
-        transition={
-            'duration': 500,  
-            'easing': 'cubic-in-out'  
-        }
+        title=dict(y=0.95, x=0.5, xanchor='center', yanchor='top', font=dict(size=20, family='Poppins, sans-serif', weight='bold', color="black")),
+        xaxis=dict(title_font=dict(size=16, family='Poppins, sans-serif', color='black'), tickfont=dict(size=12, family='Poppins, sans-serif', color='black'), tickangle=-45),
+        yaxis=dict(title_font=dict(size=16, family='Poppins, sans-serif', color='black'), tickfont=dict(size=12, family='Poppins, sans-serif', color='black')),
+        legend=dict(title='<b>Contagem</b>', font=dict(size=14, family='Poppins, sans-serif', color='black'), bgcolor='rgba(240,240,240,0.8)', bordercolor='gray', borderwidth=1),
+        margin=dict(l=50, r=50, t=80, b=50),
+        bargap=0.2,
+        plot_bgcolor='rgba(240,240,240,0.5)',
+        transition={'duration': 500, 'easing': 'cubic-in-out'}
     )
 
-    
-    fig_condicoes.update_traces(
-        marker=dict(line=dict(color='black', width=1))  
-    )
+    # Estilização dos traços do gráfico
+    fig_condicoes.update_traces(marker_line=dict(color='black', width=1))
+
 
     return fig_classificacao, fig_evolucao, fig_condicoes
 
