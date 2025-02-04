@@ -11,7 +11,7 @@ import geopandas as gpd
 import unicodedata
 from shapely.geometry import Point, Polygon
 
-# Inicializando 
+
 app = dash.Dash(
     __name__, 
     external_stylesheets=[dbc.themes.BOOTSTRAP], 
@@ -36,7 +36,7 @@ df['municipio'] = df['municipio'].apply(normalizar_nome)
 
 df['municipioIBGE'] = df['municipioIBGE'].astype(str).str.zfill(7).fillna('Desconhecido')
 
-# Layout principal
+
 app.layout = html.Div([
     html.Link(
         rel='stylesheet',
@@ -52,7 +52,7 @@ app.layout = html.Div([
     ),
 
     dbc.Container([
-        # Filtros
+        
         html.Div(className="filters", children=[
             dbc.Row([
                 dbc.Col([
@@ -82,7 +82,7 @@ app.layout = html.Div([
             ])
         ]),
 
-        # Área de troca de páginas
+        
         html.Div(id='conteudo-pagina', children=[
             dcc.Loading(
                 id="loading-pagina",
@@ -93,7 +93,7 @@ app.layout = html.Div([
     ], style={'fontFamily': 'Poppins, sans-serif'}, fluid=True)
 ])
 
-# Callback otimizado para alternar entre páginas
+
 @app.callback(
     Output('pagina-conteudo', 'children'),
     [Input('botao-pagina-1', 'n_clicks'),
@@ -101,7 +101,7 @@ app.layout = html.Div([
 )
 def navegar_paginas(botao1, botao2):
     ctx = dash.callback_context
-    pagina = 'pagina1'  # Página padrão
+    pagina = 'pagina1'  
 
     if ctx.triggered:
         trigger_id = ctx.triggered[0]['prop_id'].split('.')[0]
@@ -129,7 +129,7 @@ def navegar_paginas(botao1, botao2):
      Input('filtro-sexo', 'value')]
 )
 def criar_graficos(filtro_raca, filtro_sexo):
-    # Garantir que df não seja modificado diretamente
+    
     filtros = pd.Series(True, index=df.index)
     if filtro_raca:
         filtros &= df['racaCor'] == filtro_raca
@@ -138,7 +138,7 @@ def criar_graficos(filtro_raca, filtro_sexo):
     
     df_filtrado = df.loc[filtros].copy()
 
-    # Tratamento das faixas etárias
+    
     df_filtrado['faixa_etaria'] = df_filtrado['faixa_etaria'].astype(str).fillna('Desconhecido')
     df_filtrado = df_filtrado[df_filtrado['faixa_etaria'] != 'nan']
 
@@ -153,7 +153,7 @@ def criar_graficos(filtro_raca, filtro_sexo):
 
     df_filtrado['faixa_etaria'] = df_filtrado['faixa_etaria'].apply(agrupar_idades)
 
-    # Ordenação das categorias etárias
+    
     categorias_ordenadas = sorted(
         df_filtrado['faixa_etaria'].unique(),
         key=lambda x: int(x.split(' a ')[0]) if ' a ' in x and x != '55+' else (float('inf') if x == '55+' else int(x.split('+')[0]))
@@ -161,13 +161,13 @@ def criar_graficos(filtro_raca, filtro_sexo):
 
     df_filtrado['faixa_etaria'] = pd.Categorical(df_filtrado['faixa_etaria'], categories=categorias_ordenadas, ordered=True)
 
-    # Agrupamento otimizado
+    
     piramide_data = df_filtrado.groupby(['faixa_etaria', 'sexo']).size().reset_index(name='contagem')
     piramide_data['contagem_negativa'] = piramide_data['contagem'] * piramide_data['sexo'].map({'Feminino': -1, 'Masculino': 1})
     piramide_data['percentual'] = piramide_data['contagem'] / piramide_data['contagem'].sum() * 100
     piramide_data['texto'] = piramide_data.apply(lambda row: f"{row['contagem']} ({row['percentual']:.1f}%)", axis=1)
 
-    # Criação do gráfico
+    
     fig_piramide = px.bar(
         piramide_data,
         x='contagem_negativa',
@@ -180,7 +180,7 @@ def criar_graficos(filtro_raca, filtro_sexo):
         text='texto'
     )
 
-    # Ajustes do layout otimizados
+    
     fig_piramide.update_layout(
         template='plotly_white',
         height=700,
@@ -192,19 +192,19 @@ def criar_graficos(filtro_raca, filtro_sexo):
         transition={'duration': 800, 'easing': 'cubic-in-out'}
     )
 
-    # Ajustes nos traços e posição do texto
+   
     fig_piramide.update_traces(marker_line_width=1, marker_line_color='black', textposition='outside')
     fig_piramide.for_each_trace(lambda t: t.update(textposition='outside' if t.name == 'Masculino' else 'inside'))
     
     
-    # Preenchendo valores ausentes
+    
     df_filtrado.fillna({
         'sintomas': 'Não Informado',
         'evolucaoCaso': 'Desconhecido',
         'classificacaoFinal': 'Não Classificado'
     }, inplace=True)
 
-    # Normalizando classificação final
+    
     mapeamento_classificacao = {
         'confirmado laboratorial': 'Confirmado',
         'confirmado clínico-imagem': 'Confirmado',
@@ -220,7 +220,7 @@ def criar_graficos(filtro_raca, filtro_sexo):
         .str.capitalize()
     )
 
-    # Construção dos dados para o Sankey
+    
     colunas_sankey = ['sintomas', 'classificacaoFinal', 'evolucaoCaso']
     sankey_data = pd.concat([
         df_filtrado.groupby([colunas_sankey[i], colunas_sankey[i + 1]])
@@ -230,11 +230,11 @@ def criar_graficos(filtro_raca, filtro_sexo):
         for i in range(len(colunas_sankey) - 1)
     ], ignore_index=True)
 
-    # Criando índices únicos para os nós
+    
     todos_os_nos = list(set(sankey_data['categoria_origem']).union(set(sankey_data['categoria_destino'])))
     indices_nos = {nome: i for i, nome in enumerate(todos_os_nos)}
 
-    # Definição de cores
+    
     cores_nos_definidas = {
         'Cura': '#00995E', 'Óbito': '#000000', 'Febre': '#FFC567',
         'Confirmado': '#FD5A46', 'Não Classificado': '#058CD7',
@@ -246,7 +246,7 @@ def criar_graficos(filtro_raca, filtro_sexo):
 
     cores_nos = [cores_nos_definidas.get(categoria, gerar_cor_aleatoria()) for categoria in todos_os_nos]
 
-    # Criando o gráfico Sankey
+   
     fig_sankey = go.Figure(data=[go.Sankey(
         node=dict(
             pad=20, thickness=30, line=dict(color="black", width=0.5),
@@ -261,7 +261,7 @@ def criar_graficos(filtro_raca, filtro_sexo):
         )
     )])
 
-    # Ajustes na formatação do gráfico
+   
     fig_sankey.update_layout(
         title_text="Fluxo de Sintomas, Classificação e Evolução dos Casos",
         title_font=dict(size=22, family='Poppins, sans-serif', color='black'),
@@ -272,30 +272,30 @@ def criar_graficos(filtro_raca, filtro_sexo):
     )
 
     
-    # Agregação otimizada dos casos por município
+   
     casos_por_municipio = (
         df_filtrado.groupby('municipioNotificacao', as_index=False)
         .agg(casos=('municipioNotificacao', 'count'))
     )
 
-    # Normaliza os nomes dos municípios
+    
     casos_por_municipio['municipioNotificacao'] = casos_por_municipio['municipioNotificacao'].apply(normalizar_nome)
 
-    # Carregando e unindo os dados geográficos
+    
     gdf_municipios = gpd.read_file('df/PE_Municipios_2023.shp')
     gdf_mapa = gdf_municipios.merge(casos_por_municipio, left_on='NM_MUN', right_on='municipioNotificacao', how='left')
 
-    # Preenchendo valores nulos
+    
     gdf_mapa['casos'] = gdf_mapa['casos'].fillna(0)
 
-    # Extração direta da latitude e longitude dos centróides
+    
     gdf_mapa['latitude'] = gdf_mapa.geometry.centroid.y
     gdf_mapa['longitude'] = gdf_mapa.geometry.centroid.x
 
-    # Criando o mapa de calor
+    
     fig_mapa_calor = go.Figure()
 
-    # Adicionando pontos ao mapa (heatmap)
+    
     fig_mapa_calor.add_trace(go.Scattermapbox(
         lat=gdf_mapa['latitude'],
         lon=gdf_mapa['longitude'],
@@ -316,7 +316,7 @@ def criar_graficos(filtro_raca, filtro_sexo):
         showlegend=False
     ))
 
-    # Função otimizada para extrair coordenadas dos polígonos
+    
     def extrair_coordenadas(geom):
         """ Extrai coordenadas (lat, lon) de um Polygon ou MultiPolygon """
         if geom.geom_type == 'Polygon':
@@ -325,7 +325,7 @@ def criar_graficos(filtro_raca, filtro_sexo):
             return [list(zip(*poly.exterior.coords.xy)) for poly in geom.geoms]
         return []
 
-    # Extraindo coordenadas e adicionando ao mapa
+    
     for _, row in gdf_mapa.iterrows():
         for coords in extrair_coordenadas(row.geometry):
             lons, lats = zip(*coords)
@@ -337,12 +337,12 @@ def criar_graficos(filtro_raca, filtro_sexo):
                 showlegend=False
             ))
 
-    # Ajustes finais no layout do mapa
+    
     fig_mapa_calor.update_layout(
         mapbox=dict(
             style='carto-positron',
             zoom=6.5,
-            center=dict(lat=-8.5, lon=-37.8),  # Centralizado em PE
+            center=dict(lat=-8.5, lon=-37.8),  
         ),
         margin=dict(r=0, t=50, l=0, b=0),
         height=700,
@@ -368,10 +368,10 @@ def criar_graficos(filtro_raca, filtro_sexo):
      Input('filtro-sexo', 'value')]
 )
 def atualizar_graficos(filtro_raca, filtro_sexo):
-    # Criar uma máscara booleana inicial
+    
     filtros = pd.Series(True, index=df.index)
 
-    # Aplicar filtros apenas se houver valores selecionados
+    
     if filtro_raca:
         filtros &= df['racaCor'] == filtro_raca
     if filtro_sexo:
@@ -379,10 +379,10 @@ def atualizar_graficos(filtro_raca, filtro_sexo):
     
     df_filtrado = df[filtros]
 
-    # Agrupamento otimizado
+   
     grouped_df = df_filtrado.groupby(['sintomas', 'classificacaoFinal']).size().reset_index(name='count')
 
-    # Criando o gráfico de classificação
+   
     fig_classificacao = px.bar(
         grouped_df, 
         x='sintomas', 
@@ -394,7 +394,7 @@ def atualizar_graficos(filtro_raca, filtro_sexo):
         color_discrete_sequence=px.colors.qualitative.Set2
     )
 
-    # Atualização de layout otimizada
+    
     fig_classificacao.update_layout(
         title={'text': '<b>Classificação Final por Sintomas</b>', 'y': 0.95, 'x': 0.5, 'xanchor': 'center', 'yanchor': 'top'},
         xaxis=dict(categoryorder='total descending', title_font=dict(size=16, family='Poppins, sans-serif', color='black')),
@@ -412,14 +412,14 @@ def atualizar_graficos(filtro_raca, filtro_sexo):
 
     fig_classificacao.update_traces(marker=dict(line=dict(color='black', width=1)))
 
-    # Contagem otimizada das evoluções de casos
+    
     evolucao_count = df_filtrado['evolucaoCaso'].value_counts().reset_index()
-    evolucao_count.columns = ['evolucaoCaso', 'Contagem']  # Corrigindo a referência do nome da coluna
+    evolucao_count.columns = ['evolucaoCaso', 'Contagem']  
 
-    # Criando o gráfico otimizado
+    
     fig_evolucao = px.bar(
         evolucao_count, 
-        x='evolucaoCaso',  # Agora o nome está correto
+        x='evolucaoCaso',  
         y='Contagem', 
         title='<b>Contagem de Evolução de Casos</b>',
         labels={'Contagem': 'Número de Casos', 'evolucaoCaso': 'Evolução do Caso'},
@@ -427,7 +427,7 @@ def atualizar_graficos(filtro_raca, filtro_sexo):
         color_discrete_sequence=px.colors.qualitative.Pastel
     )
 
-    # Atualização do layout otimizada
+    
     fig_evolucao.update_layout(
         template='plotly_white',
         title=dict(y=0.95, x=0.5, xanchor='center', yanchor='top', font=dict(size=20, family='Poppins, sans-serif', color="black", weight='bold')),
@@ -440,14 +440,14 @@ def atualizar_graficos(filtro_raca, filtro_sexo):
         transition={'duration': 500, 'easing': 'cubic-in-out'}
     )
 
-    # Estilização dos traços do gráfico
+    
     fig_evolucao.update_traces(marker_line=dict(color='black', width=1))
 
-    # Contagem otimizada das condições
+    
     top_10_condicoes = df_filtrado['condicoes'].value_counts().reset_index(name='Contagem').nlargest(10, 'Contagem')
     top_10_condicoes.columns = ['Condicao', 'Contagem']  
 
-    # Criando o gráfico otimizado
+    
     fig_condicoes = px.bar(
         top_10_condicoes, 
         x='Condicao', 
@@ -458,7 +458,7 @@ def atualizar_graficos(filtro_raca, filtro_sexo):
         color_continuous_scale=px.colors.sequential.Viridis
     )
 
-    # Atualização do layout otimizada
+    
     fig_condicoes.update_layout(
         template='plotly_white',
         title=dict(y=0.95, x=0.5, xanchor='center', yanchor='top', font=dict(size=20, family='Poppins, sans-serif', weight='bold', color="black")),
@@ -471,7 +471,7 @@ def atualizar_graficos(filtro_raca, filtro_sexo):
         transition={'duration': 500, 'easing': 'cubic-in-out'}
     )
 
-    # Estilização dos traços do gráfico
+    
     fig_condicoes.update_traces(marker_line=dict(color='black', width=1))
 
 
