@@ -5,7 +5,7 @@ import dash_bootstrap_components as dbc
 import plotly.express as px
 import plotly.graph_objects as go
 import pandas as pd
-from dash.dependencies import Input, Output
+from dash.dependencies import Input, Output, State
 import random
 import geopandas as gpd
 import unicodedata
@@ -22,6 +22,8 @@ app.title = "Dashboard de Análise"
 
 
 df = pd.read_csv('df/dataset_IC_certoV2.csv', sep=';')
+df_piramide = pd.read_csv('df/dataset_IC_certoV2.csv', sep=';', usecols=['racaCor', 'sexo', 'faixa_etaria'])
+
 
 def normalizar_nome(nome):
    
@@ -36,8 +38,76 @@ df['municipio'] = df['municipio'].apply(normalizar_nome)
 
 df['municipioIBGE'] = df['municipioIBGE'].astype(str).str.zfill(7).fillna('Desconhecido')
 
+# Pré-processamento dos dados para cada gráfico
+def preprocessar_dados():
+    
+    df_piramide = df[['racaCor', 'sexo', 'faixa_etaria']].copy()
+    df_piramide['faixa_etaria'] = df_piramide['faixa_etaria'].astype(str).fillna('Desconhecido')
+    df_piramide = df_piramide[df_piramide['faixa_etaria'] != 'nan']
+
+    def agrupar_idades(faixa):
+        if ' a ' in faixa:
+            inicio_faixa = int(faixa.split(' a ')[0])
+        elif '+' in faixa:
+            inicio_faixa = int(faixa.split('+')[0])
+        else:
+            return faixa
+        return '55+' if inicio_faixa >= 55 else faixa
+
+    df_piramide['faixa_etaria'] = df_piramide['faixa_etaria'].apply(agrupar_idades)
+    categorias_ordenadas = sorted(
+        df_piramide['faixa_etaria'].unique(),
+        key=lambda x: int(x.split(' a ')[0]) if ' a ' in x and x != '55+' else (float('inf') if x == '55+' else int(x.split('+')[0]))
+    )
+    df_piramide['faixa_etaria'] = pd.Categorical(df_piramide['faixa_etaria'], categories=categorias_ordenadas, ordered=True)
+
+    
+    df_sankey = df[['sintomas', 'classificacaoFinal', 'evolucaoCaso']].copy()
+    df_sankey.fillna({
+        'sintomas': 'Não Informado',
+        'evolucaoCaso': 'Desconhecido',
+        'classificacaoFinal': 'Não Classificado'
+    }, inplace=True)
+
+    mapeamento_classificacao = {
+        'confirmado laboratorial': 'Confirmado',
+        'confirmado clínico-imagem': 'Confirmado',
+        'confirmado por critério clínico': 'Confirmado',
+        'confirmação laboratorial': 'Confirmado',
+        'confirmado clínico-epidemiológico': 'Confirmado',
+        'confirmado critério clínico': 'Confirmado'
+    }
+    df_sankey['classificacaoFinal'] = (
+        df_sankey['classificacaoFinal'].str.strip().str.lower()
+        .replace(mapeamento_classificacao)
+        .str.capitalize()
+    )
+
+    
+    df_mapa = df[['municipioNotificacao']].copy()
+    df_mapa['municipioNotificacao'] = df_mapa['municipioNotificacao'].apply(normalizar_nome)
+    casos_por_municipio = df_mapa.groupby('municipioNotificacao', as_index=False).size()
+    casos_por_municipio.columns = ['municipioNotificacao', 'casos']
+
+    
+    df_classificacao = df[['sintomas', 'classificacaoFinal']].copy()
+    df_evolucao = df[['evolucaoCaso']].copy()
+    df_condicoes = df[['condicoes']].copy()
+
+    return {
+        'df_piramide': df_piramide,
+        'df_sankey': df_sankey,
+        'df_mapa': casos_por_municipio,
+        'df_classificacao': df_classificacao,
+        'df_evolucao': df_evolucao,
+        'df_condicoes': df_condicoes
+    }
+
+# Pré-processar os dados
+dados_preprocessados = preprocessar_dados()
 
 app.layout = html.Div([
+    dcc.Store(id='store-dados-preprocessados', data=dados_preprocessados),
     html.Link(
         rel='stylesheet',
         href='https://fonts.googleapis.com/css2?family=Poppins:wght@400;600&display=swap'
@@ -129,40 +199,21 @@ def navegar_paginas(botao1, botao2):
      Input('filtro-sexo', 'value')]
 )
 def criar_graficos(filtro_raca, filtro_sexo):
-    
-    filtros = pd.Series(True, index=df.index)
+    # Acessar os DataFrames pré-processados
+    df_piramide = pd.DataFrame(dados_preprocessados['df_piramide'])
+    df_sankey = pd.DataFrame(dados_preprocessados['df_sankey'])
+    df_mapa = pd.DataFrame(dados_preprocessados['df_mapa'])
+
+    # Aplicar filtros
     if filtro_raca:
-        filtros &= df['racaCor'] == filtro_raca
+        df_piramide = df_piramide[df_piramide['racaCor'] == filtro_raca]
+        df_sankey = df_sankey[df_sankey['racaCor'] == filtro_raca]
     if filtro_sexo:
-        filtros &= df['sexo'] == filtro_sexo
-    
-    df_filtrado = df.loc[filtros].copy()
+        df_piramide = df_piramide[df_piramide['sexo'] == filtro_sexo]
+        df_sankey = df_sankey[df_sankey['sexo'] == filtro_sexo]
 
     
-    df_filtrado['faixa_etaria'] = df_filtrado['faixa_etaria'].astype(str).fillna('Desconhecido')
-    df_filtrado = df_filtrado[df_filtrado['faixa_etaria'] != 'nan']
-
-    def agrupar_idades(faixa):
-        if ' a ' in faixa:
-            inicio_faixa = int(faixa.split(' a ')[0])
-        elif '+' in faixa:
-            inicio_faixa = int(faixa.split('+')[0])
-        else:
-            return faixa
-        return '55+' if inicio_faixa >= 55 else faixa
-
-    df_filtrado['faixa_etaria'] = df_filtrado['faixa_etaria'].apply(agrupar_idades)
-
-    
-    categorias_ordenadas = sorted(
-        df_filtrado['faixa_etaria'].unique(),
-        key=lambda x: int(x.split(' a ')[0]) if ' a ' in x and x != '55+' else (float('inf') if x == '55+' else int(x.split('+')[0]))
-    )
-
-    df_filtrado['faixa_etaria'] = pd.Categorical(df_filtrado['faixa_etaria'], categories=categorias_ordenadas, ordered=True)
-
-    
-    piramide_data = df_filtrado.groupby(['faixa_etaria', 'sexo']).size().reset_index(name='contagem')
+    piramide_data = df_piramide.groupby(['faixa_etaria', 'sexo']).size().reset_index(name='contagem')
     piramide_data['contagem_negativa'] = piramide_data['contagem'] * piramide_data['sexo'].map({'Feminino': -1, 'Masculino': 1})
     piramide_data['percentual'] = piramide_data['contagem'] / piramide_data['contagem'].sum() * 100
     piramide_data['texto'] = piramide_data.apply(lambda row: f"{row['contagem']} ({row['percentual']:.1f}%)", axis=1)
@@ -195,35 +246,12 @@ def criar_graficos(filtro_raca, filtro_sexo):
    
     fig_piramide.update_traces(marker_line_width=1, marker_line_color='black', textposition='outside')
     fig_piramide.for_each_trace(lambda t: t.update(textposition='outside' if t.name == 'Masculino' else 'inside'))
-    
-    
-    
-    df_filtrado.fillna({
-        'sintomas': 'Não Informado',
-        'evolucaoCaso': 'Desconhecido',
-        'classificacaoFinal': 'Não Classificado'
-    }, inplace=True)
 
-    
-    mapeamento_classificacao = {
-        'confirmado laboratorial': 'Confirmado',
-        'confirmado clínico-imagem': 'Confirmado',
-        'confirmado por critério clínico': 'Confirmado',
-        'confirmação laboratorial': 'Confirmado',
-        'confirmado clínico-epidemiológico': 'Confirmado',
-        'confirmado critério clínico': 'Confirmado'
-    }
 
-    df_filtrado['classificacaoFinal'] = (
-        df_filtrado['classificacaoFinal'].str.strip().str.lower()
-        .replace(mapeamento_classificacao)
-        .str.capitalize()
-    )
-
-    
     colunas_sankey = ['sintomas', 'classificacaoFinal', 'evolucaoCaso']
+
     sankey_data = pd.concat([
-        df_filtrado.groupby([colunas_sankey[i], colunas_sankey[i + 1]])
+        df_sankey.groupby([colunas_sankey[i], colunas_sankey[i + 1]])
         .size()
         .reset_index(name='fluxo')
         .rename(columns={colunas_sankey[i]: 'categoria_origem', colunas_sankey[i + 1]: 'categoria_destino'})
@@ -271,78 +299,38 @@ def criar_graficos(filtro_raca, filtro_sexo):
         title={'x': 0.5, 'xanchor': 'center', 'yanchor': 'top'}
     )
 
-    
-   
-    casos_por_municipio = (
-        df_filtrado.groupby('municipioNotificacao', as_index=False)
-        .agg(casos=('municipioNotificacao', 'count'))
-    )
-
-    
-    casos_por_municipio['municipioNotificacao'] = casos_por_municipio['municipioNotificacao'].apply(normalizar_nome)
 
     
     gdf_municipios = gpd.read_file('df/PE_Municipios_2023.shp')
-    gdf_mapa = gdf_municipios.merge(casos_por_municipio, left_on='NM_MUN', right_on='municipioNotificacao', how='left')
+
+    
+    gdf_mapa = gdf_municipios.merge(df_mapa, left_on='NM_MUN', right_on='municipioNotificacao', how='left')
 
     
     gdf_mapa['casos'] = gdf_mapa['casos'].fillna(0)
 
     
-    gdf_mapa['latitude'] = gdf_mapa.geometry.centroid.y
-    gdf_mapa['longitude'] = gdf_mapa.geometry.centroid.x
-
-    
-    fig_mapa_calor = go.Figure()
-
-    
-    fig_mapa_calor.add_trace(go.Scattermapbox(
-        lat=gdf_mapa['latitude'],
-        lon=gdf_mapa['longitude'],
-        mode='markers',
-        marker=dict(
-            size=gdf_mapa['casos'],
-            color=gdf_mapa['casos'],
-            colorscale='Viridis',
-            sizemin=5,
-            sizeref=2.0 * max(gdf_mapa['casos']) / 100 ** 2,
-            sizemode='area'
-        ),
-        text=gdf_mapa['NM_MUN'],
+    fig_mapa_calor = go.Figure(go.Choroplethmapbox(
+        geojson=gdf_mapa.__geo_interface__,  
+        locations=gdf_mapa.index,  
+        z=gdf_mapa['casos'],  
+        colorscale='Viridis',  
+        marker_opacity=0.8,
+        marker_line_width=0.5,
+        colorbar_title="Casos",
         hovertemplate=(
-            "<b>Município:</b> %{text}<br>"
-            "<b>Casos:</b> %{marker.size:,}<extra></extra>"
+            "<b>Município:</b> %{customdata[0]}<br>"
+            "<b>Casos:</b> %{z}<extra></extra>"
         ),
-        showlegend=False
+        customdata=gdf_mapa[['NM_MUN']].values  
     ))
-
-    
-    def extrair_coordenadas(geom):
-        """ Extrai coordenadas (lat, lon) de um Polygon ou MultiPolygon """
-        if geom.geom_type == 'Polygon':
-            return [list(zip(*geom.exterior.coords.xy))]
-        elif geom.geom_type == 'MultiPolygon':
-            return [list(zip(*poly.exterior.coords.xy)) for poly in geom.geoms]
-        return []
-
-    
-    for _, row in gdf_mapa.iterrows():
-        for coords in extrair_coordenadas(row.geometry):
-            lons, lats = zip(*coords)
-            fig_mapa_calor.add_trace(go.Scattermapbox(
-                lat=lats, lon=lons,
-                mode='lines',
-                line=dict(width=1, color='black'),
-                hoverinfo='none',
-                showlegend=False
-            ))
 
     
     fig_mapa_calor.update_layout(
         mapbox=dict(
             style='carto-positron',
             zoom=6.5,
-            center=dict(lat=-8.5, lon=-37.8),  
+            center=dict(lat=-8.5, lon=-37.8),
         ),
         margin=dict(r=0, t=50, l=0, b=0),
         height=700,
@@ -352,7 +340,6 @@ def criar_graficos(filtro_raca, filtro_sexo):
             font=dict(size=20, family='Poppins, sans-serif', color="black")
         )
     )
-
 
     return fig_piramide, fig_sankey, fig_mapa_calor 
 
@@ -365,40 +352,43 @@ def criar_graficos(filtro_raca, filtro_sexo):
      Output('grafico-evolucao', 'figure'),
      Output('grafico-condicoes', 'figure')],
     [Input('filtro-raca', 'value'),
-     Input('filtro-sexo', 'value')]
+     Input('filtro-sexo', 'value')],
+    [State('store-dados-preprocessados', 'data')]
 )
-def atualizar_graficos(filtro_raca, filtro_sexo):
+def atualizar_graficos(filtro_raca, filtro_sexo, dados_preprocessados):
     
     filtros = pd.Series(True, index=df.index)
+    df_classificacao = pd.DataFrame(dados_preprocessados['df_classificacao'])
+    df_evolucao = pd.DataFrame(dados_preprocessados['df_evolucao'])
+    df_condicoes = pd.DataFrame(dados_preprocessados['df_condicoes'])
 
-    
     if filtro_raca:
-        filtros &= df['racaCor'] == filtro_raca
+        df_classificacao = df_classificacao[df_classificacao['racaCor'] == filtro_raca]
+        df_evolucao = df_evolucao[df_evolucao['racaCor'] == filtro_raca]
+        df_condicoes = df_condicoes[df_condicoes['racaCor'] == filtro_raca]
     if filtro_sexo:
-        filtros &= df['sexo'] == filtro_sexo
+        df_classificacao = df_classificacao[df_classificacao['sexo'] == filtro_sexo]
+        df_evolucao = df_evolucao[df_evolucao['sexo'] == filtro_sexo]
+        df_condicoes = df_condicoes[df_condicoes['sexo'] == filtro_sexo]
     
-    df_filtrado = df[filtros]
 
-   
-    grouped_df = df_filtrado.groupby(['sintomas', 'classificacaoFinal']).size().reset_index(name='count')
-
-   
+    
     fig_classificacao = px.bar(
-        grouped_df, 
-        x='sintomas', 
-        y='count', 
+        df_classificacao, 
+        y='sintomas',  
+        x='count',     
         color='classificacaoFinal',
         title='Classificação Final X Sintomas',
         labels={'count': 'Número de Casos', 'sintomas': 'Sintomas'},
         barmode='group',
-        color_discrete_sequence=px.colors.qualitative.Set2
+        color_discrete_sequence=px.colors.qualitative.Set2,
+        orientation='h'  
     )
-
-    
+   
     fig_classificacao.update_layout(
         title={'text': '<b>Classificação Final por Sintomas</b>', 'y': 0.95, 'x': 0.5, 'xanchor': 'center', 'yanchor': 'top'},
-        xaxis=dict(categoryorder='total descending', title_font=dict(size=16, family='Poppins, sans-serif', color='black')),
-        yaxis=dict(title_font=dict(size=16, family='Poppins, sans-serif', color='black')),
+        yaxis=dict(categoryorder='total ascending', title_font=dict(size=16, family='Poppins, sans-serif', color='black')),  
+        xaxis=dict(title_font=dict(size=16, family='Poppins, sans-serif', color='black')),  
         legend=dict(title='<b>Classificação Final:</b>', font=dict(size=14, family='Poppins, sans-serif', color='black'), bgcolor='rgba(240,240,240,0.8)', bordercolor='gray', borderwidth=1),
         margin=dict(l=50, r=50, t=80, b=50),
         bargap=0.2,
@@ -412,70 +402,59 @@ def atualizar_graficos(filtro_raca, filtro_sexo):
 
     fig_classificacao.update_traces(marker=dict(line=dict(color='black', width=1)))
 
-    
-    evolucao_count = df_filtrado['evolucaoCaso'].value_counts().reset_index()
-    evolucao_count.columns = ['evolucaoCaso', 'Contagem']  
-
-    
     fig_evolucao = px.bar(
-        evolucao_count, 
-        x='evolucaoCaso',  
-        y='Contagem', 
+        df_evolucao, 
+        y='evolucaoCaso',  
+        x='Contagem',      
         title='<b>Contagem de Evolução de Casos</b>',
         labels={'Contagem': 'Número de Casos', 'evolucaoCaso': 'Evolução do Caso'},
         color='evolucaoCaso',
-        color_discrete_sequence=px.colors.qualitative.Pastel
+        color_discrete_sequence=px.colors.qualitative.Pastel,
+        orientation='h'  
     )
 
-    
     fig_evolucao.update_layout(
+        showlegend=False,
         template='plotly_white',
         title=dict(y=0.95, x=0.5, xanchor='center', yanchor='top', font=dict(size=20, family='Poppins, sans-serif', color="black", weight='bold')),
-        xaxis=dict(title_font=dict(size=16, family='Poppins, sans-serif', color='black'), tickfont=dict(size=12, family='Poppins, sans-serif', color='black'), tickangle=-45),
-        yaxis=dict(title_font=dict(size=16, family='Poppins, sans-serif', color='black'), tickfont=dict(size=12, family='Poppins, sans-serif', color='black')),
-        legend=dict(title='<b>Evolução:</b>', font=dict(size=14, family='Poppins, sans-serif', color='black'), bgcolor='rgba(240,240,240,0.8)', bordercolor='gray', borderwidth=1),
+        yaxis=dict(title_font=dict(size=16, family='Poppins, sans-serif', color='black'), tickfont=dict(size=12, family='Poppins, sans-serif', color='black')),  
+        xaxis=dict(title_font=dict(size=16, family='Poppins, sans-serif', color='black'), tickfont=dict(size=12, family='Poppins, sans-serif', color='black')),  
         margin=dict(l=50, r=50, t=80, b=50),
         bargap=0.2,
         plot_bgcolor='rgba(240,240,240,0.5)',
         transition={'duration': 500, 'easing': 'cubic-in-out'}
     )
 
-    
     fig_evolucao.update_traces(marker_line=dict(color='black', width=1))
-
-    
-    top_10_condicoes = df_filtrado['condicoes'].value_counts().reset_index(name='Contagem').nlargest(10, 'Contagem')
-    top_10_condicoes.columns = ['Condicao', 'Contagem']  
-
     
     fig_condicoes = px.bar(
-        top_10_condicoes, 
-        x='Condicao', 
-        y='Contagem', 
+        df_condicoes, 
+        y='Condicao',  
+        x='Contagem',  
         title='<b>Top 10 Condições mais Frequentes</b>',
         labels={'Contagem': 'Número de Casos', 'Condicao': 'Condição'},
         color='Contagem',
-        color_continuous_scale=px.colors.sequential.Viridis
+        color_continuous_scale=px.colors.sequential.Viridis,
+        orientation='h'  
     )
 
-    
     fig_condicoes.update_layout(
+        showlegend=False,
+        coloraxis_showscale=False,
         template='plotly_white',
         title=dict(y=0.95, x=0.5, xanchor='center', yanchor='top', font=dict(size=20, family='Poppins, sans-serif', weight='bold', color="black")),
-        xaxis=dict(title_font=dict(size=16, family='Poppins, sans-serif', color='black'), tickfont=dict(size=12, family='Poppins, sans-serif', color='black'), tickangle=-45),
-        yaxis=dict(title_font=dict(size=16, family='Poppins, sans-serif', color='black'), tickfont=dict(size=12, family='Poppins, sans-serif', color='black')),
-        legend=dict(title='<b>Contagem</b>', font=dict(size=14, family='Poppins, sans-serif', color='black'), bgcolor='rgba(240,240,240,0.8)', bordercolor='gray', borderwidth=1),
+        yaxis=dict(title_font=dict(size=16, family='Poppins, sans-serif', color='black'), tickfont=dict(size=12, family='Poppins, sans-serif', color='black')),  
+        xaxis=dict(title_font=dict(size=16, family='Poppins, sans-serif', color='black'), tickfont=dict(size=12, family='Poppins, sans-serif', color='black')),  
         margin=dict(l=50, r=50, t=80, b=50),
         bargap=0.2,
         plot_bgcolor='rgba(240,240,240,0.5)',
         transition={'duration': 500, 'easing': 'cubic-in-out'}
     )
 
-    
     fig_condicoes.update_traces(marker_line=dict(color='black', width=1))
 
 
     return fig_classificacao, fig_evolucao, fig_condicoes
 
 if __name__ == '__main__':
-    app.run_server(debug=True)
+    app.run_server(debug=False)
