@@ -40,11 +40,11 @@ df['municipioIBGE'] = df['municipioIBGE'].astype(str).str.zfill(7).fillna('Desco
 
 # Pré-processamento dos dados para cada gráfico
 def preprocessar_dados():
-    
     df_piramide = df[['racaCor', 'sexo', 'faixa_etaria']].copy()
     df_piramide['faixa_etaria'] = df_piramide['faixa_etaria'].astype(str).fillna('Desconhecido')
     df_piramide = df_piramide[df_piramide['faixa_etaria'] != 'nan']
 
+   
     def agrupar_idades(faixa):
         if ' a ' in faixa:
             inicio_faixa = int(faixa.split(' a ')[0])
@@ -62,13 +62,14 @@ def preprocessar_dados():
     df_piramide['faixa_etaria'] = pd.Categorical(df_piramide['faixa_etaria'], categories=categorias_ordenadas, ordered=True)
 
     
-    df_sankey = df[['sintomas', 'classificacaoFinal', 'evolucaoCaso']].copy()
+    df_sankey = df[['sintomas', 'classificacaoFinal', 'evolucaoCaso', 'racaCor', 'sexo']].copy()
     df_sankey.fillna({
         'sintomas': 'Não Informado',
         'evolucaoCaso': 'Desconhecido',
         'classificacaoFinal': 'Não Classificado'
     }, inplace=True)
 
+   
     mapeamento_classificacao = {
         'confirmado laboratorial': 'Confirmado',
         'confirmado clínico-imagem': 'Confirmado',
@@ -84,30 +85,26 @@ def preprocessar_dados():
     )
 
     
-    df_mapa = df[['municipioNotificacao']].copy()
+    df_mapa = df[['municipioNotificacao', 'racaCor', 'sexo']].copy()
     df_mapa['municipioNotificacao'] = df_mapa['municipioNotificacao'].apply(normalizar_nome)
-    casos_por_municipio = df_mapa.groupby('municipioNotificacao', as_index=False).size()
-    casos_por_municipio.columns = ['municipioNotificacao', 'casos']
 
-    
-    df_classificacao = df[['sintomas', 'classificacaoFinal']].copy()
-    df_evolucao = df[['evolucaoCaso']].copy()
-    df_condicoes = df[['condicoes']].copy()
+    df_classificacao = df[['sintomas', 'classificacaoFinal', 'racaCor', 'sexo']].copy()
+    df_evolucao = df[['evolucaoCaso', 'racaCor', 'sexo']].copy()
+    df_condicoes = df[['condicoes', 'racaCor', 'sexo']].copy()
 
     return {
         'df_piramide': df_piramide,
         'df_sankey': df_sankey,
-        'df_mapa': casos_por_municipio,
+        'df_mapa': df_mapa,  
         'df_classificacao': df_classificacao,
         'df_evolucao': df_evolucao,
         'df_condicoes': df_condicoes
     }
 
-# Pré-processar os dados
+
 dados_preprocessados = preprocessar_dados()
 
 app.layout = html.Div([
-    dcc.Store(id='store-dados-preprocessados', data=dados_preprocessados),
     html.Link(
         rel='stylesheet',
         href='https://fonts.googleapis.com/css2?family=Poppins:wght@400;600&display=swap'
@@ -199,20 +196,25 @@ def navegar_paginas(botao1, botao2):
      Input('filtro-sexo', 'value')]
 )
 def criar_graficos(filtro_raca, filtro_sexo):
-    # Acessar os DataFrames pré-processados
-    df_piramide = pd.DataFrame(dados_preprocessados['df_piramide'])
-    df_sankey = pd.DataFrame(dados_preprocessados['df_sankey'])
-    df_mapa = pd.DataFrame(dados_preprocessados['df_mapa'])
+    
+    df_piramide = dados_preprocessados['df_piramide']
+    df_sankey = dados_preprocessados['df_sankey']
+    df_mapa = dados_preprocessados['df_mapa']
 
-    # Aplicar filtros
+    
     if filtro_raca:
         df_piramide = df_piramide[df_piramide['racaCor'] == filtro_raca]
         df_sankey = df_sankey[df_sankey['racaCor'] == filtro_raca]
+        df_mapa = df_mapa[df_mapa['racaCor'] == filtro_raca]
     if filtro_sexo:
         df_piramide = df_piramide[df_piramide['sexo'] == filtro_sexo]
         df_sankey = df_sankey[df_sankey['sexo'] == filtro_sexo]
+        df_mapa = df_mapa[df_mapa['sexo'] == filtro_sexo]
 
-    
+
+    casos_por_municipio = df_mapa.groupby('municipioNotificacao', as_index=False).size()
+    casos_por_municipio.columns = ['municipioNotificacao', 'casos']
+
     piramide_data = df_piramide.groupby(['faixa_etaria', 'sexo']).size().reset_index(name='contagem')
     piramide_data['contagem_negativa'] = piramide_data['contagem'] * piramide_data['sexo'].map({'Feminino': -1, 'Masculino': 1})
     piramide_data['percentual'] = piramide_data['contagem'] / piramide_data['contagem'].sum() * 100
@@ -304,7 +306,7 @@ def criar_graficos(filtro_raca, filtro_sexo):
     gdf_municipios = gpd.read_file('df/PE_Municipios_2023.shp')
 
     
-    gdf_mapa = gdf_municipios.merge(df_mapa, left_on='NM_MUN', right_on='municipioNotificacao', how='left')
+    gdf_mapa = gdf_municipios.merge(casos_por_municipio, left_on='NM_MUN', right_on='municipioNotificacao', how='left')
 
     
     gdf_mapa['casos'] = gdf_mapa['casos'].fillna(0)
@@ -344,23 +346,18 @@ def criar_graficos(filtro_raca, filtro_sexo):
     return fig_piramide, fig_sankey, fig_mapa_calor 
 
 
-
-    
-
 @app.callback(
     [Output('grafico-classificacao', 'figure'),
      Output('grafico-evolucao', 'figure'),
      Output('grafico-condicoes', 'figure')],
     [Input('filtro-raca', 'value'),
-     Input('filtro-sexo', 'value')],
-    [State('store-dados-preprocessados', 'data')]
+     Input('filtro-sexo', 'value')]
 )
-def atualizar_graficos(filtro_raca, filtro_sexo, dados_preprocessados):
+def atualizar_graficos(filtro_raca, filtro_sexo):
     
-    filtros = pd.Series(True, index=df.index)
-    df_classificacao = pd.DataFrame(dados_preprocessados['df_classificacao'])
-    df_evolucao = pd.DataFrame(dados_preprocessados['df_evolucao'])
-    df_condicoes = pd.DataFrame(dados_preprocessados['df_condicoes'])
+    df_classificacao = dados_preprocessados['df_classificacao']
+    df_evolucao = dados_preprocessados['df_evolucao']
+    df_condicoes = dados_preprocessados['df_condicoes']
 
     if filtro_raca:
         df_classificacao = df_classificacao[df_classificacao['racaCor'] == filtro_raca]
@@ -371,10 +368,14 @@ def atualizar_graficos(filtro_raca, filtro_sexo, dados_preprocessados):
         df_evolucao = df_evolucao[df_evolucao['sexo'] == filtro_sexo]
         df_condicoes = df_condicoes[df_condicoes['sexo'] == filtro_sexo]
     
+    df_classificacao_agg = df_classificacao.groupby(['sintomas', 'classificacaoFinal']).size().reset_index(name='count')
+    df_evolucao_agg = df_evolucao.groupby('evolucaoCaso').size().reset_index(name='Contagem')
+    df_condicoes_agg = df_condicoes.groupby('condicoes').size().reset_index(name='Contagem').nlargest(10, 'Contagem')
 
     
+    # Criar gráficos
     fig_classificacao = px.bar(
-        df_classificacao, 
+        df_classificacao_agg, 
         y='sintomas',  
         x='count',     
         color='classificacaoFinal',
@@ -388,7 +389,7 @@ def atualizar_graficos(filtro_raca, filtro_sexo, dados_preprocessados):
     fig_classificacao.update_layout(
         title={'text': '<b>Classificação Final por Sintomas</b>', 'y': 0.95, 'x': 0.5, 'xanchor': 'center', 'yanchor': 'top'},
         yaxis=dict(categoryorder='total ascending', title_font=dict(size=16, family='Poppins, sans-serif', color='black')),  
-        xaxis=dict(title_font=dict(size=16, family='Poppins, sans-serif', color='black')),  
+        xaxis=dict(title_font=dict(size=16, family='Poppins, sa ns-serif', color='black')),  
         legend=dict(title='<b>Classificação Final:</b>', font=dict(size=14, family='Poppins, sans-serif', color='black'), bgcolor='rgba(240,240,240,0.8)', bordercolor='gray', borderwidth=1),
         margin=dict(l=50, r=50, t=80, b=50),
         bargap=0.2,
@@ -403,7 +404,7 @@ def atualizar_graficos(filtro_raca, filtro_sexo, dados_preprocessados):
     fig_classificacao.update_traces(marker=dict(line=dict(color='black', width=1)))
 
     fig_evolucao = px.bar(
-        df_evolucao, 
+        df_evolucao_agg, 
         y='evolucaoCaso',  
         x='Contagem',      
         title='<b>Contagem de Evolução de Casos</b>',
@@ -428,11 +429,11 @@ def atualizar_graficos(filtro_raca, filtro_sexo, dados_preprocessados):
     fig_evolucao.update_traces(marker_line=dict(color='black', width=1))
     
     fig_condicoes = px.bar(
-        df_condicoes, 
-        y='Condicao',  
+        df_condicoes_agg, 
+        y='condicoes',  
         x='Contagem',  
         title='<b>Top 10 Condições mais Frequentes</b>',
-        labels={'Contagem': 'Número de Casos', 'Condicao': 'Condição'},
+        labels={'Contagem': 'Número de Casos', 'condicoes': 'Condição'},
         color='Contagem',
         color_continuous_scale=px.colors.sequential.Viridis,
         orientation='h'  
@@ -453,8 +454,7 @@ def atualizar_graficos(filtro_raca, filtro_sexo, dados_preprocessados):
 
     fig_condicoes.update_traces(marker_line=dict(color='black', width=1))
 
-
     return fig_classificacao, fig_evolucao, fig_condicoes
 
 if __name__ == '__main__':
-    app.run_server(debug=False)
+    app.run_server(debug=True)
